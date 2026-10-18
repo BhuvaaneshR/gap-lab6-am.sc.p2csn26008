@@ -1,0 +1,14 @@
+{
+  "updated": "2026-10-02",
+  "note": "The topic list the client keeps outside the application. Read-only.",
+  "topics": [
+    { "id": "T01", "name": "Assessment design and item writing" },
+    { "id": "T02", "name": "Academic integrity in unproctored exams" },
+    { "id": "T03", "name": "Bloom's taxonomy and question levels" },
+    { "id": "T04", "name": "Distractor quality in multiple choice" },
+    { "id": "T05", "name": "Reading comprehension question stems" },
+    { "id": "T06", "name": "Question banking and reuse policy" },
+    { "id": "T07", "name": "Accessibility in written assessment" },
+    { "id": "T08", "name": "Marking rubrics and inter-rater agreement" }
+  ]
+}

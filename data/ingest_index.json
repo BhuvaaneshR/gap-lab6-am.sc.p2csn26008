@@ -1,0 +1,32 @@
+[
+  {
+    "source": "corpus/01_question_design_basics.md",
+    "format": "md",
+    "chars": 1456
+  },
+  {
+    "source": "corpus/02_assessment_integrity.txt",
+    "format": "txt",
+    "chars": 1385
+  },
+  {
+    "source": "corpus/03_item_writing_guidelines.pdf",
+    "format": "pdf",
+    "chars": 1809
+  },
+  {
+    "source": "corpus/04_academic_integrity_deck.pptx",
+    "format": "pptx",
+    "chars": 2104
+  },
+  {
+    "source": "corpus/05_bloom_taxonomy_notes.md",
+    "format": "md",
+    "chars": 1285
+  },
+  {
+    "source": "corpus/06_exam_security_handbook.pdf",
+    "format": "pdf",
+    "chars": 2104
+  }
+]

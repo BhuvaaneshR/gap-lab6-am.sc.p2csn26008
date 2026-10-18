@@ -1,0 +1,46 @@
+{
+  "note": "Questions this application has already generated. Append to it; do not rewrite it.",
+  "questions": [
+    {
+      "id": "Q0001",
+      "topic": "Assessment design and item writing",
+      "text": "Which feature of a multiple-choice stem most reduces guessing by test-wise candidates?",
+      "source": "corpus/01_question_design_basics.md",
+      "created": "2026-09-28T09:14:00Z"
+    },
+    {
+      "id": "Q0002",
+      "topic": "Academic integrity in unproctored exams",
+      "text": "Name two controls that reduce collusion in an unproctored online examination.",
+      "source": "corpus/02_assessment_integrity.txt",
+      "created": "2026-09-28T09:15:00Z"
+    },
+    {
+      "id": "Q0003",
+      "topic": "Bloom's taxonomy and question levels",
+      "text": "At which level of Bloom's taxonomy does a question asking a candidate to justify a design choice sit?",
+      "source": "corpus/05_bloom_taxonomy_notes.md",
+      "created": "2026-09-29T11:02:00Z"
+    },
+    {
+      "id": "Q0004",
+      "topic": "Distractor quality in multiple choice",
+      "text": "Why is a distractor that nobody selects a problem rather than a harmless one?",
+      "source": "corpus/01_question_design_basics.md",
+      "created": "2026-09-29T11:03:00Z"
+    },
+    {
+      "id": "Q0005",
+      "topic": "Question banking and reuse policy",
+      "source": "corpus/03_item_writing_guidelines.pdf",
+      "created": "2026-09-30T16:40:00Z"
+    },
+    {
+      "id": "Q0006",
+      "topic": "Marking rubrics and inter-rater agreement",
+      "text": "What does a low inter-rater agreement score tell you about a rubric that a high mean mark does not?",
+      "source": "corpus/03_item_writing_guidelines.pdf",
+      "created": "2026-09-30T16:41:00Z"
+    }
+  ]
+}

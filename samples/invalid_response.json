@@ -1,0 +1,60 @@
+{
+  "topic": "photosynthesis",
+  "questions": [
+    {
+      "question": "Where does photosynthesis primarily occur in plant cells?",
+      "options": [
+        "Mitochondria",
+        "Chloroplasts",
+        "Nucleus",
+        "Ribosomes"
+      ],
+      "answer_index": 1,
+      "difficulty": "easy"
+    },
+    {
+      "question": "Which gas is absorbed by plants during photosynthesis?",
+      "options": [
+        "Oxygen",
+        "Nitrogen",
+        "Carbon dioxide",
+        "Hydrogen"
+      ],
+      "answer_index": 2,
+      "difficulty": "easy"
+    },
+    {
+      "question": "Which pigment captures light energy for photosynthesis?",
+      "options": [
+        "Hemoglobin",
+        "Chlorophyll",
+        "Melanin",
+        "Keratin"
+      ],
+      "answer_index": 1,
+      "difficulty": "easy"
+    },
+    {
+      "question": "Which substance is produced as a food product of photosynthesis?",
+      "options": [
+        "Glucose",
+        "Urea",
+        "Lactic acid",
+        "Protein"
+      ],
+      "answer_index": 0,
+      "difficulty": "medium"
+    },
+    {
+      "question": "What is the primary energy source that drives photosynthesis?",
+      "options": [
+        "Heat",
+        "Sound",
+        "Sunlight",
+        "Pressure"
+      ],
+      "answer_index": 4,
+      "difficulty": "easy"
+    }
+  ]
+}

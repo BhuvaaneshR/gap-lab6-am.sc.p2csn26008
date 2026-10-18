@@ -1,0 +1,36 @@
+ASSESSMENT INTEGRITY IN UNPROCTORED EXAMINATIONS
+Internal guidance note, revision 4
+
+1. THE PROBLEM
+
+An unproctored examination cannot prevent collusion. It can only make
+collusion expensive, detectable, or pointless. Controls that assume the
+candidate is alone in a room are not controls; they are hopes.
+
+2. CONTROLS THAT WORK
+
+Item banking at scale. If every candidate receives a different set of
+questions drawn from a large bank, the value of sharing answers falls sharply.
+The bank must be large enough that overlap between any two candidates is low,
+which in practice means several hundred items per topic.
+
+Time pressure applied honestly. A tight window reduces the opportunity to
+consult, but it also penalises slow readers who know the material. Use it
+sparingly and state it in advance.
+
+Question rotation. Items that have been sitting in a bank for three years are
+in circulation. Treat an item's age as a risk factor.
+
+3. CONTROLS THAT DO NOT WORK
+
+Honour statements. Measurable effect close to zero in every published study.
+
+Browser lockdown on a personal device. Defeated by a second device.
+
+Webcam monitoring without a human watching. Produces evidence after the fact,
+not prevention, and generates a volume of flags nobody reviews.
+
+4. WHAT TO RECORD
+
+Every item's exposure count. Every challenge and its outcome. Every change to
+the bank, with a date and a reason.
