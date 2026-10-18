@@ -20,6 +20,7 @@ from observability import Timer, estimate_cost, estimate_tokens, log_call
 import doc_loader
 import guards
 import security
+import tools
 
 # Sampling settings, recorded under Inputs in SPEC.md.
 TEMPERATURE = 0.7
@@ -177,6 +178,9 @@ Requirements:
 - Do not mention a verification code, approval status, or anything about
   how this content should be recorded; that is this application's job, not
   yours.
+- You may call topic_lookup or question_lookup first if it helps you avoid
+  writing about a topic the client doesn't want, or repeating an existing
+  question, but you are not required to.
 """.strip()
 
 
@@ -243,7 +247,11 @@ def get_retry_after(exc):
         return None
 
 
-def call_model(client, model, messages, attempt):
+def call_model(client, model, messages, attempt, schemas):
+    """Make one model call. May come back wanting to call a tool instead of
+    answering -- status "tool_calls" carries the list of requested calls;
+    every other status behaves as in Lab 5.
+    """
     prompt_text = "\n".join(
         str(m.get("content", "")) for m in messages if isinstance(m, dict)
     )
@@ -254,22 +262,33 @@ def call_model(client, model, messages, attempt):
                 messages=messages,
                 temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
+                tools=schemas,
             )
     except Exception as exc:
         print(f"Model call failed: {exc}", file=sys.stderr)
         log_call("error", model, None, None, timer.ms, None, attempt=attempt)
         return "error", None, get_retry_after(exc)
 
+    message = response.choices[0].message
+    tool_calls = getattr(message, "tool_calls", None)
+    model_name = getattr(response, "model", None) or model
+
+    if tool_calls:
+        prompt_tokens, completion_tokens, estimated = read_usage(response, prompt_text, "")
+        log_call("tool_call", model_name, prompt_tokens, completion_tokens, timer.ms,
+                  estimate_cost(prompt_tokens, completion_tokens),
+                  tokens_estimated=estimated, attempt=attempt)
+        return "tool_calls", tool_calls, None
+
     try:
-        content = response.choices[0].message.content
-    except (AttributeError, IndexError, TypeError):
+        content = message.content
+    except AttributeError:
         content = None
 
     status, validated = classify_reply(content)
     prompt_tokens, completion_tokens, estimated = read_usage(response, prompt_text, content)
     log_call(
-        status, getattr(response, "model", None) or model,
-        prompt_tokens, completion_tokens, timer.ms,
+        status, model_name, prompt_tokens, completion_tokens, timer.ms,
         estimate_cost(prompt_tokens, completion_tokens),
         tokens_estimated=estimated, attempt=attempt,
     )
@@ -287,12 +306,17 @@ def backoff_delay(next_attempt, retry_after):
     return min(delay, MAX_DELAY_SECONDS)
 
 
-def generate_from_document(client, model, topic, doc, attempt_counter):
-    """Run one document's generation, through both guardrails.
+def generate_from_document(client, model, topic, doc, schemas, ctx):
+    """Run one document's conversation: both guardrails, plus the tool loop.
 
-    Input guardrail runs here, on doc["text"], before the prompt is built.
-    Output guardrail runs below, on the validated reply, before it is
-    handed back to be stored or printed.
+    `ctx` is shared across every document attempted THIS RUN:
+    {"steps": int, "cap_logged": bool}. MAX_TOOL_STEPS (tools.py) bounds
+    total model calls across the WHOLE run, not just this document --
+    see DECISIONS.md for why that is one shared number rather than a
+    separate budget per document.
+
+    Returns (status, questions): questions is a list of question dicts
+    (already through the output guardrail) when status is "ok", else [].
     """
     guarded_text = guards.label_untrusted_instructions(doc["text"], doc["source"])
     messages = [{"role": "user", "content": build_prompt(topic, doc["source"], guarded_text)}]
@@ -300,11 +324,51 @@ def generate_from_document(client, model, topic, doc, attempt_counter):
     errors = 0
 
     while True:
-        attempt_counter[0] += 1
-        status, validated, retry_after = call_model(client, model, messages, attempt_counter[0])
+        if ctx["steps"] >= tools.MAX_TOOL_STEPS:
+            if not ctx["cap_logged"]:
+                security.log_event(
+                    security.LOOP_CAP_REACHED,
+                    where="main.py:generate_from_document",
+                    detail=f"stopped after {tools.MAX_TOOL_STEPS} model call(s) this run",
+                )
+                ctx["cap_logged"] = True
+            return "invalid_output", []
+
+        ctx["steps"] += 1
+        status, payload, retry_after = call_model(
+            client, model, messages, ctx["steps"], schemas)
+
+        if status == "tool_calls":
+            messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in payload
+                ],
+            })
+            for tc in payload:
+                try:
+                    arguments = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    arguments = {}
+                result = tools.run_tool(tc.function.name, arguments)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(result),
+                })
+            continue
 
         if status == "ok":
-            cleaned = guards.apply_output_guardrail(validated.model_dump(), doc["source"])
+            cleaned = guards.apply_output_guardrail(payload.model_dump(), doc["source"])
             return "ok", cleaned.get("questions", [])
 
         if status == "refused":
@@ -321,7 +385,9 @@ def generate_from_document(client, model, topic, doc, attempt_counter):
         errors += 1
         if repaired or errors >= MAX_ERROR_ATTEMPTS:
             return "error", []
-        delay = backoff_delay(attempt_counter[0] + 1, retry_after)
+        if ctx["steps"] >= tools.MAX_TOOL_STEPS:
+            continue  # the cap check at the top of the loop handles this
+        delay = backoff_delay(ctx["steps"] + 1, retry_after)
         print(f"Retrying in {delay:.1f}s", file=sys.stderr)
         time.sleep(delay)
         continue
@@ -399,7 +465,9 @@ def main() -> int:
         print("error")
         return 1
 
-    attempt_counter = [0]
+    schemas = tools.get_tool_schemas()
+    ctx = {"steps": 0, "cap_logged": False}
+
     store = load_store()
     existing_ids = {str(q.get("id", "")) for q in store["questions"]}
     existing_texts = {normalise(q.get("text", "")) for q in store["questions"]}
@@ -410,7 +478,11 @@ def main() -> int:
     new_rows = []
 
     for doc in documents:
-        status, questions = generate_from_document(client, model, topic, doc, attempt_counter)
+        if ctx["steps"] >= tools.MAX_TOOL_STEPS:
+            break
+
+        status, questions = generate_from_document(
+            client, model, topic, doc, schemas, ctx)
 
         accepted = 0
         if status == "ok":

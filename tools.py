@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 import security
 
@@ -111,24 +111,40 @@ def load_data_file(name: str) -> str:
     """Open one of the two allow-listed files inside data/, and nothing else.
 
     This is the ONLY place in your tools where a path is built. Nothing the
-    model says reaches it: `name` comes from your own code.
-
-    It is still written defensively, because the allow-list is the thing that
-    has to hold if somebody later wires an argument into it by mistake.
-
-    TODO 1: implement this.
-      - Refuse any name not in ALLOWED_FILES.
-      - Build the path under DATA_DIR, then resolve() it.
-      - Resolve BEFORE you compare. A check on the string is a check on the
-        wrong object: a symbolic link called topics.json can point anywhere,
-        and startswith() is true for "data_backup" as well as "data".
-      - Use Path.is_relative_to(), which compares path components rather than
-        characters.
-      - On refusal, log security.TOOL_ARG_REJECTED and raise ToolRefused.
-        Do not return "" on failure: a control that returns something on
-        failure is not a control.
+    model says reaches it: `name` comes from your own code (ALLOWED_FILES),
+    never from a tool argument.
     """
-    raise NotImplementedError("TODO 1: load_data_file")
+    if name not in ALLOWED_FILES:
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:load_data_file",
+            detail=f"refused non-allow-listed file name {name!r}",
+        )
+        raise ToolRefused()
+
+    # Build under DATA_DIR, then resolve(). Resolve BEFORE comparing: a
+    # symlink named topics.json could point anywhere, and a string check
+    # like startswith("data") would also be true for a sibling directory
+    # called "data_backup". is_relative_to() compares path components, not
+    # characters, so it is not fooled by either.
+    candidate = (DATA_DIR / name).resolve()
+    if not candidate.is_relative_to(DATA_DIR):
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:load_data_file",
+            detail=f"resolved path for {name!r} escaped DATA_DIR",
+        )
+        raise ToolRefused()
+
+    try:
+        return candidate.read_text(encoding="utf-8")
+    except OSError:
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:load_data_file",
+            detail=f"could not read allow-listed file {name!r}",
+        )
+        raise ToolRefused()
 
 
 # --------------------------------------------------------------------------
@@ -140,20 +156,46 @@ def topic_lookup(**kwargs) -> dict:
 
     Returns {"matches": [ ... ]} where each match is a validated TopicRecord.
 
-    A traversal string handed to this tool is just a topic nobody has. It
-    matches nothing, the tool returns an empty list, and the loop carries on.
-    That is the point: the argument was never a path to begin with.
-
-    TODO 2: implement this.
-      - Validate kwargs with TopicLookupArgs. Invalid arguments are refused,
-        logged as security.TOOL_ARG_REJECTED, and nothing is read.
-      - Read the topic list through load_data_file("topics.json").
-      - Match args.query against topic NAMES. Never against a filename.
-      - Validate every row with TopicRecord. Drop rows that fail and log
-        security.TOOL_RESULT_REJECTED.
-      - Return at most args.limit matches.
+    A traversal string handed to this tool (query="../.env") is just a topic
+    nobody has: it is matched against topic NAMES, never used to build a
+    path, so it matches nothing and the loop carries on. That is the point —
+    the argument was never a path to begin with.
     """
-    raise NotImplementedError("TODO 2: topic_lookup")
+    try:
+        args = TopicLookupArgs.model_validate(kwargs)
+    except ValidationError as exc:
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:topic_lookup",
+            detail=f"invalid arguments: {exc.error_count()} error(s)",
+        )
+        raise ToolRefused() from None
+
+    try:
+        raw = json.loads(load_data_file("topics.json"))
+    except (ToolRefused, json.JSONDecodeError):
+        raise ToolRefused()
+
+    rows = raw.get("topics", []) if isinstance(raw, dict) else []
+    query = args.query.strip().lower()
+
+    matches: list[dict] = []
+    for row in rows:
+        try:
+            record = TopicRecord.model_validate(row)
+        except ValidationError:
+            security.log_event(
+                security.TOOL_RESULT_REJECTED,
+                where="tools.py:topic_lookup",
+                detail=f"dropped malformed row: {row!r}"[:200],
+            )
+            continue
+        if query in record.name.lower():
+            matches.append(record.model_dump())
+        if len(matches) >= args.limit:
+            break
+
+    return {"matches": matches}
 
 
 def question_lookup(**kwargs) -> dict:
@@ -161,17 +203,48 @@ def question_lookup(**kwargs) -> dict:
 
     Returns {"matches": [ ... ]} where each match is a validated QuestionRecord.
 
-    This is how a repeat becomes a tool problem instead of a prompt problem.
-
-    TODO 3: implement this.
-      - Validate kwargs with QuestionLookupArgs.
-      - Read the store through load_data_file("generated_questions.json").
-      - Validate every row with QuestionRecord. At least one row in the
-        supplied store does not validate. Dropping it quietly is wrong;
-        log security.TOOL_RESULT_REJECTED and say which row.
-      - Return at most args.limit matches.
+    This is how a repeat becomes a tool problem instead of a prompt problem:
+    a model can call this before answering to avoid resubmitting something
+    already in the store. Storage itself still prevents duplicates even if
+    the model never calls this (see main.py) — a tool the model *may*
+    consult is not a guarantee, because the model can simply forget to.
     """
-    raise NotImplementedError("TODO 3: question_lookup")
+    try:
+        args = QuestionLookupArgs.model_validate(kwargs)
+    except ValidationError as exc:
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:question_lookup",
+            detail=f"invalid arguments: {exc.error_count()} error(s)",
+        )
+        raise ToolRefused() from None
+
+    try:
+        raw = json.loads(load_data_file("generated_questions.json"))
+    except (ToolRefused, json.JSONDecodeError):
+        raise ToolRefused()
+
+    rows = raw.get("questions", []) if isinstance(raw, dict) else []
+    query = args.query.strip().lower()
+
+    matches: list[dict] = []
+    for row in rows:
+        try:
+            record = QuestionRecord.model_validate(row)
+        except ValidationError:
+            security.log_event(
+                security.TOOL_RESULT_REJECTED,
+                where="tools.py:question_lookup",
+                detail=f"dropped malformed row id={row.get('id', '?')!r}: "
+                        f"fails QuestionRecord",
+            )
+            continue
+        if query in record.text.lower() or query in record.topic.lower():
+            matches.append(record.model_dump())
+        if len(matches) >= args.limit:
+            break
+
+    return {"matches": matches}
 
 
 # --------------------------------------------------------------------------
@@ -189,44 +262,69 @@ TOOL_ARGS = {
 }
 
 
+TOOL_DESCRIPTIONS = {
+    "topic_lookup": (
+        "Search the client's approved topic list by name. Use this to check "
+        "whether a topic you are about to write questions for is one the "
+        "client actually wants, or to find the closest approved topic name. "
+        "Read-only; does not accept a file path, only a search phrase."
+    ),
+    "question_lookup": (
+        "Search the questions this application has already generated, by "
+        "topic or by text. Use this before writing a new question, to avoid "
+        "proposing one that already exists. Read-only; does not accept a "
+        "file path, only a search phrase."
+    ),
+}
+
+
 def get_tool_schemas() -> list[dict]:
     """The tool schemas, in OpenAI function-calling form.
 
-    Each entry is:
-
-        {
-          "type": "function",
-          "function": {
-            "name": ...,
-            "description": ...,
-            "parameters": <JSON schema>
-          }
-        }
-
-    The description is the interface. The model never sees your function; it
-    sees this text. A vague description is a bug in the tool.
-
-    TODO 4: implement this.
-      - Build one entry per tool in TOOL_ARGS.
-      - The "parameters" value must come from the Pydantic model, via
-        model_json_schema(). A hand-written dict scores zero here even if it
-        happens to be correct, because it will drift from the model the first
-        time you change a field.
-      - Take the description from the function's docstring or write one here.
+    The "parameters" value comes from each Pydantic model's own
+    model_json_schema(), not a hand-written dict: a hand-written copy would
+    silently drift from TopicLookupArgs/QuestionLookupArgs the first time a
+    field changes here without the schema being updated to match.
     """
-    raise NotImplementedError("TODO 4: get_tool_schemas")
+    schemas = []
+    for name, model in TOOL_ARGS.items():
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": TOOL_DESCRIPTIONS.get(
+                    name, (TOOL_FUNCTIONS[name].__doc__ or "").strip()),
+                "parameters": model.model_json_schema(),
+            },
+        })
+    return schemas
 
 
 def run_tool(name: str, arguments: dict) -> dict:
     """Dispatch one tool call by name.
 
-    Returns a dict that is safe to put in a tool message. On refusal it returns
-    a dict describing the refusal rather than raising, so that the loop can
-    tell the model it was refused and carry on.
-
-    TODO 5: implement this.
-      - Refuse any name not in TOOL_FUNCTIONS, and log it.
-      - Call the tool, catching validation failures.
-      - Never return a traceback or a filesystem path to the model.
+    Returns a dict that is safe to put in a tool message. On refusal it
+    returns a dict describing the refusal rather than raising, so the loop
+    can tell the model it was refused and carry on instead of crashing.
+    Never returns a traceback or a filesystem path.
     """
-    raise NotImplementedError("TODO 5: run_tool")
+    if name not in TOOL_FUNCTIONS:
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:run_tool",
+            detail=f"refused unknown tool name {name!r}",
+        )
+        return {"error": "unknown_tool"}
+
+    try:
+        return TOOL_FUNCTIONS[name](**(arguments or {}))
+    except ToolRefused:
+        return {"error": "refused"}
+    except TypeError:
+        # e.g. arguments wasn't a mapping at all.
+        security.log_event(
+            security.TOOL_ARG_REJECTED,
+            where="tools.py:run_tool",
+            detail=f"{name}: arguments were not a valid mapping",
+        )
+        return {"error": "invalid_arguments"}
