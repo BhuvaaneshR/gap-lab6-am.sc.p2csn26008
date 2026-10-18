@@ -23,10 +23,5 @@
     "source": "corpus/05_bloom_taxonomy_notes.md",
     "format": "md",
     "chars": 1285
-  },
-  {
-    "source": "corpus/06_exam_security_handbook.pdf",
-    "format": "pdf",
-    "chars": 2104
   }
 ]
